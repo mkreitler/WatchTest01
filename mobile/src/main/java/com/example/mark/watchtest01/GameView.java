@@ -15,27 +15,18 @@
  */
 package com.example.mark.watchtest01;
 import android.content.Context;
-import android.content.res.Resources;
-import android.graphics.Bitmap;
-import android.graphics.BitmapFactory;
 import android.graphics.Canvas;
 import android.graphics.Paint;
-import android.graphics.RectF;
-import android.graphics.drawable.BitmapDrawable;
-import android.graphics.drawable.Drawable;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Message;
-import android.os.Vibrator;
 import android.util.AttributeSet;
-import android.util.Log;
-import android.view.KeyEvent;
 import android.view.MotionEvent;
 import android.view.SurfaceHolder;
 import android.view.SurfaceView;
 import android.view.View;
 
-import java.util.List;
+import android.bluetooth.BluetoothAdapter;
 
 
 /**
@@ -68,6 +59,10 @@ class GameView extends SurfaceView implements SurfaceHolder.Callback {
         protected float targetX                 = 0.0f;
         protected float targetY                 = 0.0f;
         protected boolean bTargetLocReady       = false;
+        protected BluetoothAdapter bluetooth    = null;
+
+        protected GameStateFail gameStateFail               = null;
+        protected GameStateListDevices gameStateListDevices = null;
 
         public GameThread(SurfaceHolder surfaceHolder, Context context,
                           Handler handler) {
@@ -76,23 +71,46 @@ class GameView extends SurfaceView implements SurfaceHolder.Callback {
             mContext = context;
         }
 
+        private void CreateStates() {
+            gameStateFail = new GameStateFail(this);
+            gameStateListDevices = new GameStateListDevices(this);
+        }
+
         public Context getContext() {
             return mContext;
+        }
+
+        public void EnterStateListDevices() {
+            setState(gameStateListDevices);
+        }
+
+        public void Fail(String message) {
+            gameStateFail.SetMessage(message);
+            setState(gameStateFail);
         }
 
         /**
          * Starts the game, setting parameters for the current difficulty.
          */
         public void doStart() {
+            CreateStates();
+
+            StartBluetooth();
+
             synchronized (mSurfaceHolder) {
                 mRun = true;
             }
         }
 
         /**
-         * Stops the game, resets the robot.
+         * Stops the game.
          */
         public void doStop() {
+            BluetoothAdapter bluetooth = BluetoothAdapter.getDefaultAdapter();
+            if (bluetooth != null && bluetooth.isDiscovering()) {
+                bluetooth.cancelDiscovery();
+            }
+
             synchronized(mSurfaceHolder) {
                 mRun = false;
             }
@@ -265,11 +283,23 @@ class GameView extends SurfaceView implements SurfaceHolder.Callback {
                 currentState.Draw(canvas);
             }
         }
+
+        private void StartBluetooth() {
+            bluetooth = BluetoothAdapter.getDefaultAdapter();
+
+            if (bluetooth == null) {
+                Fail("Couldn't find Bluetooth adapter!");
+            }
+            else {
+                if (!bluetooth.isEnabled()) {
+                    MainActivity._startBluetooth();
+                }
+                else {
+                    EnterStateListDevices();
+                }
+            }
+        }
     }
-
-    // RobotChangedStateListener Interface /////////////////////////////////////////////////////////
-
-    // ResponseListener Interface //////////////////////////////////////////////////////////////////
 
     // GameView Interface //////////////////////////////////////////////////////////////////////////
     @Override
@@ -323,6 +353,18 @@ class GameView extends SurfaceView implements SurfaceHolder.Callback {
      */
     public GameThread getThread() {
         return thread;
+    }
+
+    public void onStop() {
+        if (thread != null) {
+            thread.doStop();
+        }
+    }
+
+    public void onStart() {
+        if (thread != null) {
+            thread.doStart();
+        }
     }
 
     /**
