@@ -9,6 +9,7 @@ import android.support.wearable.view.BoxInsetLayout;
 import android.util.Log;
 import android.view.MotionEvent;
 import android.view.View;
+import android.view.WindowManager;
 import android.widget.TextView;
 
 import java.text.SimpleDateFormat;
@@ -44,6 +45,8 @@ public class MainActivity extends WearableActivity {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
         setAmbientEnabled();
+
+        getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
 
         mContainerView = (BoxInsetLayout) findViewById(R.id.container);
 

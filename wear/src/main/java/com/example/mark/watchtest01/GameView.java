@@ -21,6 +21,7 @@ import android.graphics.BitmapFactory;
 import android.graphics.Canvas;
 import android.graphics.Paint;
 import android.graphics.RectF;
+import android.graphics.drawable.BitmapDrawable;
 import android.graphics.drawable.Drawable;
 import android.os.Bundle;
 import android.os.Handler;
@@ -37,13 +38,20 @@ import android.view.View;
 import com.orbotix.ConvenienceRobot;
 import com.orbotix.DualStackDiscoveryAgent;
 import com.orbotix.async.CollisionDetectedAsyncData;
+import com.orbotix.async.DeviceSensorAsyncMessage;
 import com.orbotix.common.DiscoveryException;
 import com.orbotix.common.ResponseListener;
 import com.orbotix.common.Robot;
 import com.orbotix.common.RobotChangedStateListener;
 import com.orbotix.common.internal.AsyncMessage;
 import com.orbotix.common.internal.DeviceResponse;
+import com.orbotix.common.sensor.DeviceSensorsData;
+import com.orbotix.common.sensor.LocatorData;
+import com.orbotix.common.sensor.SensorFlag;
 import com.orbotix.le.RobotLE;
+import com.orbotix.subsystem.SensorControl;
+
+import java.util.List;
 
 
 /**
@@ -65,6 +73,12 @@ class GameView extends SurfaceView implements SurfaceHolder.Callback, RobotChang
     }
 
     class GameThread extends Thread {
+        private static final float X_RANGE = 200.0f;;
+        private static final float Y_RANGE = 200.0f;
+        private final float[] EGG_R = {0.0f, 0.0f, 1.0f, 0.67f, 0.67f};
+        private final float[] EGG_G = {0.0f, 1.0f, 0.0f, 0.0f, 0.67f};
+        private final float[] EGG_B = {0.0f, 0.0f, 1.0f, 0.67f, 0.0f};
+
         protected SurfaceHolder mSurfaceHolder  = null;
         protected Handler mHandler              = null;
         protected Context mContext              = null;
@@ -73,43 +87,69 @@ class GameView extends SurfaceView implements SurfaceHolder.Callback, RobotChang
         protected int mCanvasWidth              = 0;
         protected int mCanvasHeight             = 0;
         protected IGameState currentState       = null;
-        protected GameStateConnect stateConnect = null;
-        protected GameStateDrive stateDrive     = null;
-        protected GameStateAim stateAim         = null;
         protected ConvenienceRobot mRobot       = null;
+        protected float targetX                 = 0.0f;
+        protected float targetY                 = 0.0f;
+        protected boolean bTargetLocReady       = false;
 
-        protected GameStateIntro stateIntro     = new GameStateIntro();
+        protected GameStateIntro stateIntro                     = new GameStateIntro();
+        protected GameStateConnect stateConnect                 = null;
+        protected GameStateDrive stateDrive                     = null;
+        protected GameStateAim stateAim                         = null;
+        protected GameStateShowEgg stateShowEgg                 = null;
+        protected GameStateShowHatchling stateShowHatchling     = null;
 
         public void lookForRobot(RobotChangedStateListener robotMonitor) {
             stateConnect = new GameStateConnect(robotMonitor, mContext);
             stateDrive = new GameStateDrive();
             stateAim = new GameStateAim();
+            stateShowEgg = new GameStateShowEgg();
+            stateShowHatchling = new GameStateShowHatchling();
+
+            Sprite.setPaint(_paint);
+
             thread.enterConnectState();
         }
 
         public GameThread(SurfaceHolder surfaceHolder, Context context,
                            Handler handler) {
-            // get handles to some important objects
             mSurfaceHolder = surfaceHolder;
             mHandler = handler;
             mContext = context;
 
             setState(stateIntro);
-            /*
-            Resources res = context.getResources();
+        }
 
-            mBackgroundImage = BitmapFactory.decodeResource(res,
-                    R.drawable.earthrise);
-            */
+        public Context getContext() {
+            return mContext;
+        }
+
+
+        public void ResetTarget() {
+            bTargetLocReady = false;
         }
 
         public void enterDriveState() {
             setState(stateDrive);
         }
-        public void enterAimState() { setState(stateAim); }
+        public void enterAimState() {
+            setState(stateAim);
+        }
 
         public void enterConnectState() {
             setState(stateConnect);
+        }
+
+        public void enterShowEggState(BitmapDrawable egg, int iEgg) {
+            stateShowEgg.SetEggInfo(egg, iEgg, EGG_R[iEgg], EGG_G[iEgg], EGG_B[iEgg]);
+            setState(stateShowEgg);
+        }
+
+        public void enterShowHatchlingState(float maxAccelX, float maxAccelY, float maxAccelZ,
+                                            float aveYaw, float avePitch, float aveRoll,
+                                            int nSamples, int iEgg) {
+            stateShowHatchling.SetHatchlingData(maxAccelX, maxAccelY, maxAccelZ, aveYaw, avePitch, aveRoll, nSamples, iEgg);
+            setState(stateShowHatchling);
         }
 
         /**
@@ -166,6 +206,14 @@ class GameView extends SurfaceView implements SurfaceHolder.Callback, RobotChang
         public synchronized void restoreState(Bundle savedState) {
             synchronized (mSurfaceHolder) {
             }
+        }
+
+        public int width() {
+            return mCanvasWidth;
+        }
+
+        public int height() {
+            return mCanvasHeight;
         }
 
         public void setRobot(ConvenienceRobot robot) {
@@ -301,6 +349,36 @@ class GameView extends SurfaceView implements SurfaceHolder.Callback, RobotChang
             return bHandled;
         }
 
+        public void ProcessCollision(CollisionDetectedAsyncData colData) {
+            if (currentState != null) {
+                currentState.ProcessCollision(colData);
+            }
+        }
+
+        public void ProcessLocatorData(LocatorData locDat) {
+            if (currentState != null && locDat != null) {
+                if (bTargetLocReady) {
+                    currentState.ProcessLocatorData(locDat, targetX, targetY);
+                }
+                else {
+                    bTargetLocReady = true;
+                    targetX = (float)(locDat.getPositionX() + (Math.random() - 0.5f) * X_RANGE);
+                    targetX += targetX > 0.0f ? X_RANGE * 0.5f : -X_RANGE * 0.5f;
+
+                    targetY = (float)(locDat.getPositionY() + (Math.random() - 0.5f) * Y_RANGE);
+                    targetY += targetY > 0.0f ? Y_RANGE * 0.5f : -Y_RANGE * 0.5f;
+                }
+            }
+        }
+
+        public void ProcessSensorData(DeviceSensorsData sensorData) {
+            if (currentState != null && sensorData != null) {
+                if (bTargetLocReady) {
+                    currentState.ProcessSensorData(sensorData);
+                }
+            }
+        }
+
         private void doDraw(Canvas canvas) {
             if (currentState != null) {
                 currentState.Draw(canvas);
@@ -311,7 +389,7 @@ class GameView extends SurfaceView implements SurfaceHolder.Callback, RobotChang
     // RobotChangedStateListener Interface /////////////////////////////////////////////////////////
     @Override
     public void handleRobotChangedState( Robot robot, RobotChangedStateNotificationType type ) {
-        Log.d("Sphero", ">>> handleRobotChangedState");
+        // Log.d("Sphero", ">>> handleRobotChangedState");
         switch( type ) {
             case Online: {
 
@@ -323,6 +401,8 @@ class GameView extends SurfaceView implements SurfaceHolder.Callback, RobotChang
 
                 //Save the robot as a ConvenienceRobot for additional utility methods
                 mRobot = new ConvenienceRobot( robot );
+                long mask = SensorFlag.ACCELEROMETER_NORMALIZED.longValue() | SensorFlag.ATTITUDE.longValue() | SensorFlag.LOCATOR.longValue();
+                mRobot.enableSensors(mask, SensorControl.StreamingRate.STREAMING_RATE10);
                 mRobot.enableCollisions(true);
                 mRobot.addResponseListener(this);
 
@@ -359,31 +439,51 @@ class GameView extends SurfaceView implements SurfaceHolder.Callback, RobotChang
 
     @Override
     public void handleAsyncMessage(AsyncMessage asyncMessage, Robot robot) {
-        Log.d("GameView", "Incoming async message...");
-        if( asyncMessage instanceof CollisionDetectedAsyncData) {
-            Vibrator vibrator = (Vibrator) thread.mContext.getSystemService(Context.VIBRATOR_SERVICE);
-
+        // Log.d("GameView", "Incoming async message...");
+        if(asyncMessage instanceof CollisionDetectedAsyncData) {
             //Collision occurred.
-            CollisionDetectedAsyncData collision = (CollisionDetectedAsyncData)asyncMessage;
-            float powerX = collision.getImpactPower().x;
-            float powerY = collision.getImpactPower().y;
-            float power = (float)Math.sqrt(powerX * powerX + powerY * powerY);
+            HandleCollisionMessage((CollisionDetectedAsyncData)asyncMessage);
+        }
+        else if (asyncMessage instanceof DeviceSensorAsyncMessage) {
+            HandleSensorData((DeviceSensorAsyncMessage)asyncMessage);
+        }
+    }
 
-            Log.d("GameView", "   !!! Collision with power " + power);
+    private void HandleSensorData(DeviceSensorAsyncMessage sensorData) {
+        List<DeviceSensorsData> dataList = sensorData.getAsyncData();
+        if (dataList != null) {
+            for (DeviceSensorsData datum : dataList) {
+                LocatorData locDat = datum.getLocatorData();
+                thread.ProcessLocatorData(locDat);
+                thread.ProcessSensorData(datum);
+            }
+        }
+    }
 
-            if (power > COLLISION_STRONG) {
-                long[] vibrationPattern = {0, 50, 50, 250};
-                vibrator.vibrate(vibrationPattern, -1);
-            }
-            else if (power > COLLISION_MEDIUM) {
-                long[] vibrationPattern = {0, 250};
-                vibrator.vibrate(vibrationPattern, -1);
-            }
-            else if (power > COLLISION_WEAK) {
-                long[] vibrationPattern = {0, 100};
-                vibrator.vibrate(vibrationPattern, -1);
-            }
+    private void HandleCollisionMessage(CollisionDetectedAsyncData collision) {
+        Vibrator vibrator = (Vibrator) thread.mContext.getSystemService(Context.VIBRATOR_SERVICE);
 
+        float powerX = collision.getImpactPower().x;
+        float powerY = collision.getImpactPower().y;
+        float power = (float)Math.sqrt(powerX * powerX + powerY * powerY);
+
+        if (thread != null) {
+            thread.ProcessCollision(collision);
+        }
+
+        // Log.d("GameView", "   !!! Collision with power " + power);
+
+        if (power > COLLISION_STRONG) {
+            long[] vibrationPattern = {0, 50, 50, 250};
+            vibrator.vibrate(vibrationPattern, -1);
+        }
+        else if (power > COLLISION_MEDIUM) {
+            long[] vibrationPattern = {0, 250};
+            vibrator.vibrate(vibrationPattern, -1);
+        }
+        else if (power > COLLISION_WEAK) {
+            long[] vibrationPattern = {0, 100};
+            vibrator.vibrate(vibrationPattern, -1);
         }
     }
 
@@ -415,6 +515,7 @@ class GameView extends SurfaceView implements SurfaceHolder.Callback, RobotChang
 
     public GameView(Context context, AttributeSet attrs, int defStyle) {
         super(context, attrs, defStyle);
+
         createThread(context);
     }
 

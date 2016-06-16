@@ -9,11 +9,12 @@ import android.view.View;
 
 import com.example.mark.watchtest01.IGameState;
 import com.orbotix.ConvenienceRobot;
+import com.orbotix.common.sensor.LocatorData;
 
 /**
  * Created by Mark on 6/10/2016.
  */
-public class GameStateAim implements IGameState {
+public class GameStateAim extends GameStateBase {
     private int aimCenterX              = 0;
     private int aimCenterY              = 0;
     private int aimRadius               = 0;
@@ -24,6 +25,12 @@ public class GameStateAim implements IGameState {
     private boolean bTouched            = false;
     private GameView.GameThread game    = null;
 
+    @Override
+    public void ProcessLocatorData(LocatorData locDat, float targetX, float targetY) {
+        // Nothing to process in the 'Aim' state.
+    }
+
+    @Override
     public void Enter(GameView.GameThread gameView) {
         game = gameView;
 
@@ -34,6 +41,7 @@ public class GameStateAim implements IGameState {
     }
 
     // Update should return 'true' when the state has finished updating.
+    @Override
     public boolean Update() {
         boolean bExit = false;
 
@@ -44,6 +52,7 @@ public class GameStateAim implements IGameState {
         return bExit;
     }
 
+    @Override
     public void Exit() {
         ConvenienceRobot robot = game != null ? game.getRobot() : null;
         if (robot != null) {
@@ -52,6 +61,7 @@ public class GameStateAim implements IGameState {
         }
     }
 
+    @Override
     public void Draw(Canvas c) {
         if (!bUIready) {
             InitUI(c);
@@ -60,11 +70,11 @@ public class GameStateAim implements IGameState {
         c.save();
         c.drawARGB(255, 0, 0, 0);
 
-        GameView._paint.setStyle(Paint.Style.FILL_AND_STROKE);
+        GameView._paint.setStyle(Paint.Style.STROKE);
         GameView._paint.setColor(Color.BLUE);
         c.drawLine(aimCenterX - aimRadius, aimCenterY, aimCenterX + aimRadius, aimCenterY, GameView._paint);
 
-        GameView._paint.setStyle(Paint.Style.STROKE);
+        GameView._paint.setStyle(Paint.Style.FILL_AND_STROKE);
         GameView._paint.setColor(Color.GREEN);
 
         c.drawArc(swapCenterX - swapRadius, swapCenterY - swapRadius, swapCenterX + swapRadius, swapCenterY + swapRadius, 0, 360, true, GameView._paint);
@@ -72,6 +82,7 @@ public class GameStateAim implements IGameState {
         c.restore();
     }
 
+    @Override
     public boolean onTouch(View v, MotionEvent e) {
         boolean bHandled = false;
 
@@ -184,9 +195,9 @@ public class GameStateAim implements IGameState {
         aimCenterY = h / 2;
         aimRadius  = bigDim / 2 * (INDENT - 2) / INDENT;
 
-        swapCenterX = w - bigDim / INDENT;
-        swapCenterY = bigDim / INDENT;
         swapRadius  = bigDim / INDENT;
+        swapCenterX = swapRadius;
+        swapCenterY = swapRadius;
 
         bUIready = true;
     }
